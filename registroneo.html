@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Registro de OP</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial; max-width:900px; margin:24px auto; padding:0 16px; color:#111; }
+    h1 { margin-bottom:8px; }
+    form { display:flex; gap:12px; flex-wrap:wrap; align-items:end; margin-bottom:14px; }
+    label { display:flex; flex-direction:column; font-size:14px; }
+    input[type="text"], input[type="number"] { padding:8px; border:1px solid #ccc; border-radius:6px; min-width:200px; }
+    button { padding:8px 12px; border-radius:6px; border:1px solid #2b6; background:#2e7; cursor:pointer; }
+    button.secondary { background:#eee; border-color:#bbb; color:#111; }
+    table { width:100%; border-collapse:collapse; margin-top:12px; }
+    th, td { border:1px solid #ddd; padding:8px; text-align:left; font-size:13px; }
+    th { background:#f4f4f4; }
+    .actions { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+    .small { font-size:12px; padding:6px 8px; }
+    .danger { background:#ffdddd; border-color:#ff9999; }
+    @media (max-width:600px){
+      input[type="text"], input[type="number"] { min-width:unset; width:100%; }
+      form { flex-direction:column; align-items:stretch; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Registro de OP</h1>
+
+  <form id="formRegistro" onsubmit="return false;">
+    <label>
+      Número da OP
+      <input id="opNumber" type="text" inputmode="numeric" pattern="\d+" placeholder="ex: 12345" required>
+    </label>
+
+    <label>
+      Localização
+      <input id="location" type="text" placeholder="ex: Galpão A - Prédio 3" required>
+    </label>
+
+    <label>
+      Número do Chip
+      <input id="chipNumber" type="text" inputmode="numeric" pattern="\d{8,20}" placeholder="apenas números" required>
+    </label>
+
+    <button id="btnSalvar" type="button">Salvar</button>
+  </form>
+
+  <div class="actions">
+    <button id="btnMostrar" class="secondary small">Mostrar registros</button>
+    <button id="btnExportar" class="small">Exportar CSV</button>
+    <button id="btnLimpar" class="danger small">Limpar todos</button>
+  </div>
+
+  <div id="listaContainer"></div>
+
+  <script>
+    const STORAGE_KEY = 'registrosOP_v1';
+
+    function carregarRegistros(){
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        return raw ? JSON.parse(raw) : [];
+      } catch(e) {
+        console.error('Erro ao ler storage', e);
+        return [];
+      }
+    }
+
+    function salvarRegistros(arr){
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+    }
+
+    function validarCampo(input){
+      if (!input.checkValidity()){
+        input.reportValidity();
+        return false;
+      }
+      return true;
+    }
+
+    function adicionarRegistro(op, loc, chip){
+      const registros = carregarRegistros();
+      const registro = {
+        id: Date.now(),
+        op: String(op).trim(),
+        localizacao: String(loc).trim(),
+        chip: String(chip).trim(),
+        criadoEm: new Date().toISOString()
+      };
+      registros.push(registro);
+      salvarRegistros(registros);
+      return registro;
+    }
+
+    function montarTabela(registros){
+      if (!registros.length) return '<p>Nenhum registro.</p>';
+      let html = '<table><thead><tr><th>#</th><th>OP</th><th>Localização</th><th>Chip</th><th>Data/Hora</th><th>Ações</th></tr></thead><tbody>';
+      registros.slice().reverse().forEach((r, idx) => {
+        const dt = new Date(r.criadoEm).toLocaleString();
+        html += `<tr>
+          <td>${registros.length - idx}</td>
+          <td>${escapeHtml(r.op)}</td>
+          <td>${escapeHtml(r.localizacao)}</td>
+          <td>${escapeHtml(r.chip)}</td>
+          <td>${dt}</td>
+          <td><button onclick="removerRegistro(${r.id})" class="secondary small">Remover</button></td>
+        </tr>`;
+      });
+      html += '</tbody></table>';
+      return html;
+    }
+
+    function atualizarLista(){
+      const registros = carregarRegistros();
+      const container = document.getElementById('listaContainer');
+      container.innerHTML = montarTabela(registros);
+    }
+
+    function exportarCSV(){
+      const regs = carregarRegistros();
+      if (!regs.length){ alert('Não há registros para exportar.'); return; }
+      const header = ['id','op','localizacao','chip','criadoEm'];
+      const rows = regs.map(r => header.map(h => escapeCsv(String(r[h] ?? ''))));
+      const csv = [header.join(','), ...rows.map(r=>r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'registros_op.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function escapeCsv(text){
+      // Surround with quotes if contains comma or quotes or newline, and escape quotes
+      if (/[,"\n]/.test(text)) {
+        return '"' + text.replace(/"/g, '""') + '"';
+      }
+      return text;
+    }
+
+    function escapeHtml(text){
+      return text
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    function removerRegistro(id){
+      if (!confirm('Remover este registro?')) return;
+      let regs = carregarRegistros();
+      regs = regs.filter(r => r.id !== id);
+      salvarRegistros(regs);
+      atualizarLista();
+    }
+
+    function limparTodos(){
+      if (!confirm('Apagar todos os registros? Esta ação é irreversível.')) return;
+      localStorage.removeItem(STORAGE_KEY);
+      atualizarLista();
+    }
+
+    // liga eventos
+    document.getElementById('btnSalvar').addEventListener('click', () => {
+      const opInput = document.getElementById('opNumber');
+      const locInput = document.getElementById('location');
+      const chipInput = document.getElementById('chipNumber');
+
+      if (!validarCampo(opInput) || !validarCampo(locInput) || !validarCampo(chipInput)) return;
+
+      adicionarRegistro(opInput.value, locInput.value, chipInput.value);
+      opInput.value = '';
+      locInput.value = '';
+      chipInput.value = '';
+      atualizarLista();
+      opInput.focus();
+    });
+
+    document.getElementById('btnMostrar').addEventListener('click', atualizarLista);
+    document.getElementById('btnExportar').addEventListener('click', exportarCSV);
+    document.getElementById('btnLimpar').addEventListener('click', limparTodos);
+
+    // inicializa
+    atualizarLista();
+
+    // expõe função de remoção para uso nos botões gerados dinamicamente
+    window.removerRegistro = removerRegistro;
+  </script>
+</body>
+</html>
